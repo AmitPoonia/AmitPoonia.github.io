@@ -1,50 +1,98 @@
 /* Shared overrides on top of latex.css — one file, linked from every page. */
 
+/* 700px minus the 22px gutters is ~74 characters per line at 19px Palatino —
+   the top of the comfortable 45-75 range. Widen and enlarge together, or the
+   measure drifts past it. */
 body#md {
-  max-width: 720px;
+  max-width: 700px;
   margin: 0 auto;
-  padding: 34px 22px 72px;
-  font-size: 17px;
+  padding: 40px 22px 48px;
+  font-family: Palatino, Georgia, "Times New Roman", serif;
+  font-size: 19px;
   line-height: 1.6;
-  color: #1a1a1a;
+  color: #21201d;
+  background: #fbfaf7;
 }
 
-/* Top navigation */
+::selection { background: #d9e4f0; }
+
+/* Top navigation — quiet small caps so it doesn't compete with the page title */
 .topnav {
   text-align: center;
-  font-size: 18px;
-  margin-bottom: 44px;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 52px;
 }
-.topnav a { color: #3d6ea5; text-decoration: none; margin: 0 3px; }
-.topnav a:hover { text-decoration: underline; }
-.topnav .sep { color: #bbb; margin: 0 7px; }
+.topnav a { color: #807c76; text-decoration: none; margin: 0 2px; }
+.topnav a:hover { color: #1a1a1a; }
+.topnav .sep { color: #c9c5be; margin: 0 9px; }
 
 /* Name / page hero — a div (not <h1>) so Markdeep doesn't auto-number it */
 .hero { margin: 0 0 30px; }
 .hero .hero-title {
   font-family: Palatino, Georgia, "Times New Roman", serif;
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 600;
   margin: 0 0 6px;
   line-height: 1.25;
 }
 .hero .tagline {
   font-style: italic;
-  color: #555;
-  font-size: 17px;
+  color: #666;
+  font-size: 19px;
   margin: 0;
 }
 
 /* Prose */
 .md p { margin: 0 0 18px; }
-.md a { color: #3d6ea5; }
+.md a {
+  color: #3d6ea5;
+  text-decoration-color: #b9cce0;
+  text-underline-offset: 3px;
+}
+.md a:hover { text-decoration-color: #3d6ea5; }
+
+/* Inline code on a soft warm chip; leave code inside listings alone */
+.md code { background: #f1efe8; padding: 1px 4px; border-radius: 3px; }
+.md pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; }
+
+/* Listings align to the prose column. Long lines wrap rather than scrolling, so
+   nothing is hidden off the right edge. resize:none drops the drag handle
+   Markdeep puts on pre.listing by default. */
+.md pre.listing {
+  box-sizing: border-box;
+  font-size: 14px;
+  line-height: 1.5;
+  background: #f5f3ec;
+  padding: 14px 18px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-x: hidden;
+  resize: none;
+}
 
 /* Section headings a bit larger to match the bigger body text */
-.md h1, .md div.nonumberh1 { font-size: 23px; padding-top: 8px; }
-.md h2, .md div.nonumberh2 { font-size: 19px; }
+.md h1, .md div.nonumberh1 { font-size: 26px; padding-top: 8px; }
+.md h2, .md div.nonumberh2 { font-size: 21px; }
 
 /* Post list */
-.md ul li.asterisk, .md ul li.minus { margin-bottom: 8px; }
+.md ul li.asterisk, .md ul li.minus { margin-bottom: 10px; }
+.post-date {
+  color: #8a867f;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Footer */
+.site-footer {
+  margin-top: 72px;
+  padding-top: 16px;
+  border-top: 1px solid #e6e2db;
+  text-align: center;
+  font-size: 13px;
+  color: #9b968e;
+}
 
 /* Hide the auto "formatted by Markdeep" signature */
 .markdeepFooter { display: none !important; }

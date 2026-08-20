@@ -1,0 +1,123 @@
+<meta charset="utf-8" emacsmode="-*- markdown -*-">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting a foothold in Reinforcement Learning for LLMs — Amit Poonia</title>
+<meta name="description" content="An opinionated way into RL for LLMs: reframe MNIST classification as an RL problem by swapping cross-entropy for a REINFORCE loss.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext x='8' y='13' text-anchor='middle' font-family='Georgia,serif' font-size='15' fill='%233d6ea5'%3EA%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="../assets/latex.css">
+<link rel="stylesheet" href="../assets/site.css">
+
+<nav class="topnav"><a href="/">About</a><span class="sep">·</span><a href="/blog.md.html">Blog</a></nav>
+
+<header class="hero">
+<div class="hero-title">Getting a foothold in Reinforcement Learning for LLMs</div>
+<p class="tagline">20-Aug-2026</p>
+</header>
+
+
+(##) Premise
+
+Fine-tuning LLMs is a key part of applied AI/ML engineering work these days, by using supervised fine-tuning (SFT) and increasingly in combination with Reinforcement Learning (RL) methods like GRPO and its variants, aka policy gradient methods. But RL based fine-tuning approaches are harder to get right, there are more hyper-parameters to manage than a typical supervised learning (SL) setup, it also introduces a lot of new terms and concepts, not all of which are equally important in context of LLMs. Overall it can be hard to figure out where to start without getting lost in various details and corresponding theory.
+
+So if you are someone like me, who have been working in ML since pre-LLM era, trained supervised models using sklearn, pytorch etc., maybe fine-tuned embedding models, maybe tried libraries like TRL from Huggingface, and want to learn more about RL in context of LLMs without being overwhelmed, then this might be a relevant article for you. Here I propose an opinionated approach to get started with RL.
+
+(##) Approach
+
+The main thing that worked for me was to frame a familiar SL problem as a RL problem, thats it. It will likely give you a sub-optimal result but will help with getting a better intuition, and pave the way for further reading, experimentation etc. This was in part inspired by [a twitter/x thread](https://x.com/IanOsband/status/2034995355037626712?s=20) from DeepMind researcher Ian Osband.
+
+So how to do it? Take your favorite toy classification problem, for e.g. MNIST, use labelled data to simulate an environment which can provide a reward instead of labels. And then swap cross-entropy loss with a vanilla policy gradient method loss, aka REINFORCE. I have some code here which implements just that, lets go through it.
+
+First, let setup our dataset and basic feed forward network as our model/policy.
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
+from torch.distributions import Categorical
+
+train_data = datasets.MNIST('./data', train=True, download=True, transform=transforms.ToTensor())
+test_data = datasets.MNIST('./data', train=False, download=True, transform=transforms.ToTensor())
+
+train_loader = DataLoader(train_data, shuffle=True, batch_size=16)
+test_loader = DataLoader(test_data, batch_size=100)
+
+class Model(nn.Module):
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int) -> None:
+        super().__init__()
+
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, input):
+        return self.model(input)
+```
+
+Now lets create a function which implements the training loop given some loss function, and other hyper-parameters as input. Also a utility function to calculate accuracy. The details of network and hyper-parameters are not that important for our goal here, there is no specific reason for choosing this configuration, and the code is kept simple for learning purpose.
+```python
+@torch.no_grad()
+def get_accuracy(model: Model, data_loader: DataLoader) -> float:
+    model.eval()
+    correct = 0
+    for x, y in data_loader:
+        correct += (model(x).argmax(dim=1) == y).sum().item()
+    return round(correct / len(data_loader.dataset), 4)
+
+
+def train(loss_fn, epochs: int=10, learning_rate: float = 2e-4):
+    torch.manual_seed(42)
+    model = Model(784, 100, 10)
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=learning_rate)
+    for epoch in range(epochs):
+        model.train()
+        for x,y in train_loader:
+            logits = model(x)
+            loss = loss_fn(logits, y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        train_accuracy = get_accuracy(model, train_loader)
+        test_accuracy = get_accuracy(model, test_loader)
+
+        print(f"After epoch {epoch}, train accuracy: {train_accuracy}, test_accuracy: {test_accuracy}")
+```
+
+Ok, so far this was a familiar workflow of training some classifier with labelled data. For the SL we will use pytorch's cross_entropy loss function, for RL lets create a custom loss function which implements the vanilla policy gradient method.
+```python
+def vanilla_pg_loss(input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    dist = Categorical(logits=input)
+    index_vector = dist.sample()
+    logprob_vector = dist.log_prob(index_vector)
+    reward = torch.where(index_vector == target, 1.0, -1.0)
+    return -(reward * logprob_vector).mean()
+```
+
+Now lets think about this loss function and what exactly it is doing. It follows the same function signature as pytorch's functional cross_entropy implementation which is taking input tensor and target tensor and returning a scalar loss value as a tensor. But inside the code we are sampling from input instead to taking the greedy approach and picking the index with highest probability. We first convert input logits into a categorical distribution, and then sample an index from it, if it matches to index expected class then we assign a positive reward 1.0 else negative reward -1.0. The act of sampling here introduces randomness and enables exploration.
+
+So if cross entropy loss is $-\log p_c$ where $p_c$ is probability of correct class/label, the policy gradient loss is $-r \cdot \log p_s$ where $p_s$ is probability of the sampled class, and $r$ is the reward, which is calculated from whether the sampled class is equal to the correct class or not. This minor difference is the key change, we are basically using ground truth labels indirectly to provide learning signal. The reward itself is a constant and have no gradient here, same for the sampling part, its non-differentiable. During backward pass the gradients will only flow for the $\log p_s$ part.
+
+Now, lets run the training using both loss functions one by one, it should take couple of minutes.
+```python
+print("Supervised learning:")
+train(F.cross_entropy)
+print()
+print("Reinforcement learning:")
+train(vanilla_pg_loss)
+```
+
+If you compare final accuracy numbers from the both runs the difference is not that much. But if you inspect printed accuracy numbers after each epoch you will notice that with cross-entropy the model converges faster as it gets richer learning signal, the probability of right answer is pushed up during every optimization step, but with policy gradient loss probability of whatever class label we sampled gets pushed up or down depending on the reward.
+
+Another important thing to notice here that during evaluation we are not doing any sampling and just taking argmax for both cases to keep the results comparable. In some cases we may want to sample/explore during inference time too, for e.g. to get diverse LLM generations.
+
+(##) Next steps
+
+Hopefully above code shown the fundamental difference between SL and RL. Once you played around with above approach, I suggest you do the vanilla policy gradient derivation yourself with pen and paper, learn how it uses log-derivative trick to make the whole reward mechanism differentiable — [OpenAI's Spinning Up derivation](https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html#deriving-the-simplest-policy-gradient) is one good explanation for that (these docs are great in general to learn about RL). You can also swap REINFORCE with GRPO based loss function, which will introduce multiple samples and calculation of advantage. There is also this great tutorial paper [Invitation to RL](https://arxiv.org/pdf/2312.08365), which is a good followup in the vein of this blog, provides a broader view of RL in a concise and simple manner. I highly recommend this as the next read, and taking it from there.
+
+<footer class="site-footer">© Amit Poonia</footer>
+
+<!-- Markdeep: --><style class="fallback">body{visibility:hidden;white-space:pre;font-family:monospace}</style><script src="../assets/markdeep.min.js" charset="utf-8"></script><script>window.alreadyProcessedMarkdeep||(document.body.style.visibility="visible")</script>
